@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Mission Mode – SpaceSkribble</title>
+  <meta name="theme-color" content="#060818" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="/config.js"></script>
+  <script src="/js/guard.js" data-mode="protected"></script>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/css/mission.css" />
+</head>
+<body>
+  <main class="m-wrap">
+    <div class="m-top">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><span class="ring"></span></span><span>SpaceSkribble</span></a>
+      <div class="links">
+        <a href="/" id="t-back">← Back to game</a>
+        <button type="button" data-lang-toggle>বাংলা</button>
+      </div>
+    </div>
+
+    <!-- 1. LOCKED -->
+    <section id="v-lock" class="glass m-card m-lock m-hidden" aria-live="polite">
+      <p class="eyebrow" id="t-lock-eyebrow"></p>
+      <h1 id="t-lock-title"></h1>
+      <p class="m-muted" id="t-lock-text"></p>
+      <div class="m-bar-track"><div class="m-bar-fill" id="lock-bar"></div></div>
+      <p id="lock-count"></p>
+      <a class="btn btn-primary btn-lg" href="/" id="t-lock-btn"></a>
+    </section>
+
+    <!-- 2. SETUP -->
+    <section id="v-setup" class="glass m-card m-hidden">
+      <p class="eyebrow" id="t-setup-eyebrow"></p>
+      <h1 id="t-setup-title"></h1>
+      <p class="m-muted" id="t-setup-text"></p>
+      <div class="m-outposts" id="outposts"></div>
+      <p><span class="m-supply" id="supply-pill"></span></p>
+      <p class="m-muted" id="offline-note"></p>
+      <div class="m-actions"><button class="btn btn-primary btn-lg" id="start-btn" disabled></button></div>
+    </section>
+
+    <!-- 3. PLAY -->
+    <section id="v-play" class="m-hidden">
+      <div class="m-res" id="res"></div>
+      <div class="glass m-card m-event" id="event"></div>
+    </section>
+
+    <!-- 4. DEBRIEF -->
+    <section id="v-debrief" class="m-hidden"></section>
+  </main>
+
+  <div class="toast-stack" id="toasts" aria-live="polite"></div>
+  <script src="/data/missions.js"></script>
+  <script src="/mission.js"></script>
+  <script src="/js/i18n.js"></script>
+  <script>
+(() => {
+  'use strict';
+  const D = window.MISSION_DATA;
+  const M = window.MissionEngine;
+  const API = (window.SS_CONFIG && window.SS_CONFIG.API_URL) || '';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const lang = () => (window.SSI18n ? window.SSI18n.lang() : 'en');
+  const L = (o) => (o && (o[lang()] || o.en)) || '';
+  const safeUrl = (u) => (/^https?:\/\//.test(u || '') ? esc(u) : '#');
+
+  // ───────────── texts for this page (English / Bangla) ─────────────
+  const UI = {
+    en: {
+      back: '← Back to game', lockEyebrow: 'Mission Mode · locked', lockTitle: 'Earn your place in the crew',
+      lockText: 'Get correct guesses in the drawing game to unlock Mission Mode: run a Moon or Mars outpost and make life-or-death decisions.',
+      lockCount: (c, n) => `${c} / ${n} correct guesses` + (c < n ? ` · ${n - c} to go` : ''), lockBtn: '🚀 Play the game',
+      setupEyebrow: 'Junior Astronaut Mission Trainer', setupTitle: 'Run an outpost for 8 sols',
+      setupText: 'A sol is one day. Each sol brings a problem. Your choices change power, food, life support, radiation shield and crew health. Keep the crew alive and healthy until sol 8.',
+      supply: (n) => `📦 Supply points: ${n}`, supplyNote: 'You earn supply points from correct guesses in the drawing game. Each one boosts a resource by 15, once per sol.',
+      offline: 'Could not reach the server, so this run will not be saved (practice mode).', start: 'Start mission', pick: 'Pick an outpost',
+      sol: (a, b) => `Sol ${a} of ${b}`, supplyShort: (n) => `📦 ${n}`, nasa: 'NASA fact', source: 'Source', needs: (n) => `Needs ${n} supply point`,
+      boost: 'Use a supply point: +15 to', boosted: 'Supply point used this sol.', none: 'No supply points left.',
+      choiceResult: 'What happened', daily: 'End of sol', next: 'Next sol →', debrief: 'See mission debrief →',
+      notes: {
+        power_out: 'Power ran out, so life support slowed down.', low_life: 'Air and water were low, so the crew got sick.',
+        low_food: 'Food was low, so the crew got weak.', low_power: 'Power was low, so the crew struggled.', low_shield: 'Radiation shield was weak, so the crew absorbed radiation.',
+      },
+      success: 'Mission success! 🎉', partial: 'Mission survived, but with damage', fail: 'Mission failed',
+      score: 'Score', whyTitle: 'Why this happened',
+      failHealth: (s) => `Crew health reached zero on sol ${s}.`, failLife: (s) => `Life support (air and water) ran out on sol ${s}.`,
+      worstMistake: (s, t, w) => `Biggest mistake: sol ${s} (${t}). ${w}`, bestMove: (s, t, w) => `Best decision: sol ${s} (${t}). ${w}`,
+      weakest: (r, v) => `Weakest resource at the end: ${r} (${v}/100).`,
+      tips: {
+        power: 'Tip: power drives life support. Clean panels early and avoid running everything at full power.',
+        food: 'Tip: replant crops early; skipping a failing harvest costs food later.',
+        life: 'Tip: fix the recycler and pumps quickly. Air and water leaks get worse each sol.',
+        shield: 'Tip: build radiation shielding early. Radiation hurts health every sol it stays low.',
+        health: 'Tip: keep exercising and avoid risky outside work during storms.',
+      },
+      table: { sol: 'Sol', event: 'Problem', decision: 'Your decision', change: 'Changes' },
+      saved: (xp) => `✅ Saved. +${xp} XP`, xpLimit: '✅ Saved. (Daily XP limit reached)', saveFail: 'Could not save this run.',
+      again: 'Play another mission', home: 'Back to the drawing game',
+    },
+    bn: {
+      back: '← গেমে ফিরে যাও', lockEyebrow: 'মিশন মোড · বন্ধ', lockTitle: 'ক্রুতে জায়গা করে নাও',
+      lockText: 'ড্রয়িং গেমে সঠিক গেস করে Mission Mode আনলক করো। তারপর চাঁদ বা মঙ্গলের আউটপোস্ট চালাও আর জীবন-মরণের সিদ্ধান্ত নাও।',
+      lockCount: (c, n) => `${c} / ${n} সঠিক গেস` + (c < n ? ` · আর ${n - c}টা বাকি` : ''), lockBtn: '🚀 গেম খেলো',
+      setupEyebrow: 'জুনিয়র অ্যাস্ট্রোনট মিশন ট্রেনার', setupTitle: '৮ সোল ধরে একটি আউটপোস্ট চালাও',
+      setupText: 'এক সোল মানে একদিন। প্রতি সোলে একটা সমস্যা আসবে। তোমার সিদ্ধান্তে বিদ্যুৎ, খাদ্য, লাইফ সাপোর্ট, বিকিরণ সুরক্ষা ও ক্রুর স্বাস্থ্য বদলাবে। সোল ৮ পর্যন্ত ক্রুকে বাঁচিয়ে সুস্থ রাখো।',
+      supply: (n) => `📦 সাপ্লাই পয়েন্ট: ${n}`, supplyNote: 'ড্রয়িং গেমে সঠিক গেস করলে সাপ্লাই পয়েন্ট পাও। প্রতিটি পয়েন্ট একটি রিসোর্স ১৫ বাড়ায়, প্রতি সোলে একবার।',
+      offline: 'সার্ভারে পৌঁছানো যায়নি, তাই এই রান সেভ হবে না (প্র্যাকটিস মোড)।', start: 'মিশন শুরু করো', pick: 'একটি আউটপোস্ট বেছে নাও',
+      sol: (a, b) => `সোল ${a} / ${b}`, supplyShort: (n) => `📦 ${n}`, nasa: 'NASA তথ্য', source: 'সোর্স', needs: (n) => `${n}টি সাপ্লাই পয়েন্ট লাগবে`,
+      boost: 'সাপ্লাই পয়েন্ট খরচ করো: +১৫', boosted: 'এই সোলে সাপ্লাই পয়েন্ট খরচ হয়েছে।', none: 'সাপ্লাই পয়েন্ট নেই।',
+      choiceResult: 'কী ঘটল', daily: 'সোল শেষে', next: 'পরের সোল →', debrief: 'মিশন ডিব্রিফ দেখো →',
+      notes: {
+        power_out: 'বিদ্যুৎ শেষ, তাই লাইফ সাপোর্ট ধীর হয়ে গেছে।', low_life: 'বাতাস ও পানি কম, তাই ক্রু অসুস্থ হচ্ছে।',
+        low_food: 'খাবার কম, তাই ক্রু দুর্বল হচ্ছে।', low_power: 'বিদ্যুৎ কম, তাই ক্রুর কষ্ট হচ্ছে।', low_shield: 'বিকিরণ ঢাল দুর্বল, তাই ক্রু বিকিরণ নিচ্ছে।',
+      },
+      success: 'মিশন সফল! 🎉', partial: 'মিশন টিকে গেছে, কিন্তু ক্ষতি হয়েছে', fail: 'মিশন ব্যর্থ',
+      score: 'স্কোর', whyTitle: 'এমন কেন হলো',
+      failHealth: (s) => `সোল ${s}-এ ক্রুর স্বাস্থ্য শূন্যে নেমে গেছে।`, failLife: (s) => `সোল ${s}-এ লাইফ সাপোর্ট (বাতাস ও পানি) শেষ হয়ে গেছে।`,
+      worstMistake: (s, t, w) => `সবচেয়ে বড় ভুল: সোল ${s} (${t})। ${w}`, bestMove: (s, t, w) => `সেরা সিদ্ধান্ত: সোল ${s} (${t})। ${w}`,
+      weakest: (r, v) => `শেষে সবচেয়ে দুর্বল রিসোর্স: ${r} (${v}/১০০)।`,
+      tips: {
+        power: 'পরামর্শ: বিদ্যুৎই লাইফ সাপোর্ট চালায়। আগেভাগে প্যানেল পরিষ্কার করো, সব কিছু পূর্ণ শক্তিতে চালিও না।',
+        food: 'পরামর্শ: নষ্ট ফসল তাড়াতাড়ি আবার লাগাও। না করলে পরে খাবার কমে যায়।',
+        life: 'পরামর্শ: রিসাইকলার ও পাম্প দ্রুত সারাও। বাতাস-পানির লিক প্রতি সোলে বাড়ে।',
+        shield: 'পরামর্শ: আগেই বিকিরণ ঢাল বানাও। ঢাল কম থাকলে প্রতি সোলে স্বাস্থ্য কমে।',
+        health: 'পরামর্শ: ব্যায়াম চালিয়ে যাও আর ঝড়ের সময় বাইরের ঝুঁকিপূর্ণ কাজ এড়াও।',
+      },
+      table: { sol: 'সোল', event: 'সমস্যা', decision: 'তোমার সিদ্ধান্ত', change: 'পরিবর্তন' },
+      saved: (xp) => `✅ সেভ হয়েছে। +${xp} XP`, xpLimit: '✅ সেভ হয়েছে। (আজকের XP সীমা শেষ)', saveFail: 'এই রান সেভ করা যায়নি।',
+      again: 'আরেকটি মিশন খেলো', home: 'ড্রয়িং গেমে ফিরে যাও',
+    },
+  };
+  const T = () => UI[lang()];
+
+  // ───────────── state ─────────────
+  let status = null; // from /api/mission/status, or null if the server was unreachable
+  let chosenOutpost = null;
+  let m = null; // engine state
+  let resolved = null; // log entry shown after a decision
+  let prevRes = null; // for +/- numbers on the bars
+  let view = 'setup';
+  let saveMsg = '';
+
+  const token = () => { const u = window.SSAuth && window.SSAuth.user(); return u ? u.token : ''; };
+  const storedSupply = () => Math.max(0, Math.min(6, parseInt(localStorage.getItem('ss-supply') || '0', 10) || 0));
+  const show = (id) => { view = id; for (const v of ['lock', 'setup', 'play', 'debrief']) $('v-' + v).classList.toggle('m-hidden', v !== id); window.scrollTo(0, 0); };
+  const resName = (k) => D.LABELS[k].icon + ' ' + D.LABELS[k][lang()];
+
+  async function loadStatus() {
+    try {
+      const r = await fetch(API + '/api/mission/status', { headers: { Authorization: 'Bearer ' + token() } });
+      if (r.status === 401 && window.SSAuth) return window.SSAuth.logout('expired');
+      if (!r.ok) throw new Error('bad');
+      status = await r.json();
+    } catch (e) { status = null; }
+  }
+
+  // ───────────── lock + setup ─────────────
+  function renderLock() {
+    const t = T();
+    $('t-back').textContent = t.back;
+    $('t-lock-eyebrow').textContent = t.lockEyebrow; $('t-lock-title').textContent = t.lockTitle; $('t-lock-text').textContent = t.lockText;
+    $('t-lock-btn').textContent = t.lockBtn;
+    const c = status ? status.correct : 0, n = status ? status.needed : D.UNLOCK_CORRECT_GUESSES;
+    $('lock-bar').style.width = Math.min(100, (c / n) * 100) + '%';
+    $('lock-count').textContent = t.lockCount(c, n);
+  }
+
+  function renderSetup() {
+    const t = T();
+    $('t-back').textContent = t.back;
+    $('t-setup-eyebrow').textContent = t.setupEyebrow; $('t-setup-title').textContent = t.setupTitle; $('t-setup-text').textContent = t.setupText;
+    $('outposts').innerHTML = Object.entries(D.OUTPOSTS).map(([id, o]) =>
+      `<button type="button" class="m-outpost" data-id="${id}" aria-pressed="${chosenOutpost === id}">
+        <span class="big">${o.icon}</span><strong>${esc(L(o.name))}</strong>
+        <span class="m-tag">${esc(L(o.level))}</span>
+        <p class="m-muted">${esc(L(o.blurb))}</p></button>`).join('');
+    const supplies = 2 + storedSupply();
+    $('supply-pill').textContent = t.supply(supplies);
+    $('offline-note').textContent = status ? t.supplyNote : t.offline;
+    $('start-btn').textContent = chosenOutpost ? t.start : t.pick;
+    $('start-btn').disabled = !chosenOutpost;
+  }
+
+  $('outposts').addEventListener('click', (e) => {
+    const b = e.target.closest('.m-outpost'); if (!b) return;
+    chosenOutpost = b.dataset.id; renderSetup();
+  });
+
+  $('start-btn').addEventListener('click', () => {
+    if (!chosenOutpost) return;
+    const supplies = 2 + storedSupply();
+    try { localStorage.setItem('ss-supply', '0'); } catch (e) {} // spent on this mission
+    m = M.create({ outpost: chosenOutpost, supplies });
+    resolved = null; prevRes = { ...m.res }; saveMsg = '';
+    show('play'); renderPlay();
+  });
+
+  // ───────────── play ─────────────
+  function renderResources() {
+    const r = m.res;
+    $('res').innerHTML = D.RESOURCES.map((k) => {
+      const d = prevRes ? r[k] - prevRes[k] : 0;
+      const cls = r[k] < 30 ? 'low' : r[k] < 55 ? 'mid' : '';
+      return `<div class="m-r ${cls}"><div class="n"><span>${resName(k)}</span></div><div class="v">${r[k]}</div>
+        <div class="bar"><i style="width:${r[k]}%"></i></div>
+        <div class="d ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d ? (d > 0 ? '▲ +' : '▼ ') + d : '&nbsp;'}</div></div>`;
+    }).join('');
+  }
+
+  function srcOf(ev) { return ev.srcBy ? ev.srcBy[m.outpost] : ev.src; }
+  function factOf(ev) { return ev.fact.en ? ev.fact : ev.fact[m.outpost]; }
+
+  function renderPlay() {
+    const t = T();
+    $('t-back').textContent = t.back;
+    renderResources();
+    const ev = resolved ? M.currentEventById(resolved.eventId) : M.currentEvent(m);
+    const dots = Array.from({ length: m.total }, (_, i) => `<i class="${i < m.log.length ? 'done' : i === m.log.length ? 'now' : ''}"></i>`).join('');
+    const solNo = resolved ? resolved.sol : m.sol;
+    let html = `<div class="m-sol"><span class="eyebrow">${esc(L(D.OUTPOSTS[m.outpost].name))} · ${t.sol(solNo, m.total)}</span>
+      <span class="m-dots">${dots}</span><span class="m-supply">${t.supplyShort(m.supplies)}</span></div>
+      <h2>${ev.icon} ${esc(L(ev.title))}</h2><p>${esc(L(ev.text))}</p>
+      <div class="m-fact"><b>${t.nasa}:</b> ${esc(L(factOf(ev)))} <a target="_blank" rel="noopener" href="${safeUrl(srcOf(ev).url)}">${t.source}: ${esc(srcOf(ev).title)} ↗</a></div>`;
+
+    if (!resolved) {
+      html += '<div class="m-choices">' + ev.choices.map((c, i) => {
+        const can = M.canChoose(m, i);
+        return `<button class="m-choice" data-i="${i}" ${can ? '' : 'disabled'}>${esc(L(c.label))}${c.cost ? `<small>📦 ${esc(t.needs(c.cost))}</small>` : ''}</button>`;
+      }).join('') + '</div>';
+      const canBoost = !m.boosted && m.supplies > 0;
+      html += `<div class="m-boost"><span>${m.boosted ? t.boosted : canBoost ? t.boost : t.none}</span>` +
+        ['power', 'food', 'life', 'shield'].map((k) => `<button data-boost="${k}" ${canBoost ? '' : 'disabled'}>${resName(k)}</button>`).join('') + '</div>';
+    } else {
+      const c = ev.choices[resolved.choice];
+      const notes = resolved.notes.map((n) => `<li>${esc(t.notes[n])}</li>`).join('');
+      html += `<div class="m-result-note"><b>${t.choiceResult}:</b> ${esc(L(c.label))}<br />${esc(L(c.why))}
+        ${notes ? `<p><b>${t.daily}:</b></p><ul>${notes}</ul>` : ''}</div>
+        <div class="m-actions"><button class="btn btn-primary btn-lg" id="next-btn">${m.over ? t.debrief : t.next}</button></div>`;
+    }
+    $('event').innerHTML = html;
+  }
+
+  $('event').addEventListener('click', (e) => {
+    const ch = e.target.closest('.m-choice');
+    const bo = e.target.closest('[data-boost]');
+    const nx = e.target.closest('#next-btn');
+    if (bo && !resolved) { M.boost(m, bo.dataset.boost); renderPlay(); renderResources(); return; }
+    if (ch && !resolved) {
+      prevRes = { ...m.res };
+      const entry = M.choose(m, +ch.dataset.i);
+      if (entry) { resolved = entry; renderPlay(); }
+      return;
+    }
+    if (nx) {
+      resolved = null;
+      if (m.over) return showDebrief();
+      prevRes = { ...m.res };
+      renderPlay();
+    }
+  });
+
+  // ───────────── debrief ─────────────
+  function deltaChips(total) {
+    return D.RESOURCES.filter((k) => Math.abs(total[k]) >= 1)
+      .map((k) => `<span class="${total[k] > 0 ? 'm-delta-up' : 'm-delta-down'}">${D.LABELS[k].icon}${total[k] > 0 ? '+' : ''}${total[k]}</span>`).join(' ');
+  }
+
+  function showDebrief() {
+    show('debrief');
+    const d = M.debrief(m);
+    save(d);
+    renderDebrief(d);
+  }
+
+  function renderDebrief(d) {
+    const t = T();
+    const why = [];
+    if (d.result === 'fail') why.push(d.key === 'life' ? t.failLife(d.failSol) : t.failHealth(d.failSol));
+    if (d.culprit) why.push(t.worstMistake(d.culprit.sol, L(d.culprit.ev.title), L(d.culprit.c.why)));
+    if (d.best) why.push(t.bestMove(d.best.sol, L(d.best.ev.title), L(d.best.c.why)));
+    why.push(t.weakest(D.LABELS[d.weakest][lang()], d.final[d.weakest]));
+    if (d.result !== 'success') why.push(t.tips[d.key === 'health' ? d.weakest === 'health' ? 'health' : d.weakest : d.key]);
+
+    const rows = d.rows.map((r) => `<tr><td>${r.sol}</td><td>${r.ev.icon} ${esc(L(r.ev.title))}</td><td>${esc(L(r.c.label))}${r.e.boost ? ` <small>(📦 ${D.LABELS[r.e.boost].icon})</small>` : ''}</td><td>${deltaChips(r.total)}</td></tr>`).join('');
+
+    $('v-debrief').innerHTML = `
+      <div class="glass m-card">
+        <div class="m-banner ${d.result}"><h1>${t[d.result]}</h1>
+          <p>${esc(L(D.OUTPOSTS[m.outpost].name))}</p>
+          <div class="score">${d.score}</div><div class="m-muted">${t.score}</div>
+          <p id="save-msg" class="m-muted">${esc(saveMsg)}</p></div>
+        <h2>${t.whyTitle}</h2>
+        <div class="m-why">${why.map((w) => `<div>${esc(w)}</div>`).join('')}</div>
+        <table class="m-timeline"><thead><tr><th>${t.table.sol}</th><th>${t.table.event}</th><th>${t.table.decision}</th><th>${t.table.change}</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="m-actions">
+          <button class="btn btn-primary btn-lg" id="again-btn">${t.again}</button>
+          <a class="btn btn-ghost" href="/">${t.home}</a></div>
+      </div>`;
+  }
+
+  async function save(d) {
+    saveMsg = '';
+    if (!status) return;
+    try {
+      const r = await fetch(API + '/api/mission/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token() },
+        body: JSON.stringify({
+          outpost: m.outpost, result: d.result, sols: m.log.length, score: d.score,
+          log: m.log.map((e) => ({ sol: e.sol, event: e.eventId, choice: e.choice })),
+        }),
+      });
+      const j = await r.json();
+      saveMsg = r.ok ? (j.xp ? T().saved(j.xp) : T().xpLimit) : (j.message || T().saveFail);
+    } catch (e) { saveMsg = T().saveFail; }
+    const el = $('save-msg'); if (el) el.textContent = saveMsg;
+    loadStatus();
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#again-btn')) { m = null; chosenOutpost = null; show('setup'); renderSetup(); }
+  });
+
+  // Re-draw the current screen when the language changes.
+  document.addEventListener('ss-lang', () => {
+    if (view === 'lock') renderLock();
+    else if (view === 'setup') renderSetup();
+    else if (view === 'play' && m) renderPlay();
+    else if (view === 'debrief' && m) renderDebrief(M.debrief(m));
+  });
+
+  (async function init() {
+    await loadStatus();
+    if (status && !status.unlocked) { renderLock(); show('lock'); }
+    else { renderSetup(); show('setup'); }
+  })();
+})();
+  </script>
+</body>
+</html>
